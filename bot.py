@@ -5,20 +5,25 @@ import feedparser
 import requests
 
 # ==============================================================================
-# 1. UNICORN WATCHLIST CONFIGURATION
+# 1. WATCHLIST CONFIGURATION
 # ==============================================================================
 WATCHLIST = [
     # --------------------------------------------------------------------------
     # DESKTOP ISOLATION
     # --------------------------------------------------------------------------
     {
-        "name": "IsoAcoustics Aperta (UNICORN)",
+        "name": "IsoAcoustics Aperta",
         "max_price": 110.00,
         "query": "isoacoustics aperta",
     },
     # --------------------------------------------------------------------------
-    # UNICORN SPEAKERS (Screaming Deals Only)
+    # SPEAKERS
     # --------------------------------------------------------------------------
+    {
+        "name": "KEF LS50 / LS50 Meta",
+        "max_price": 1650.00,  # Set to $1,650 to test alert triggers
+        "query": "ls50",  # Broad search term catches LS50, LS50 Meta, LS50W
+    },
     {
         "name": "Revel Performa3 M106 (UNICORN)",
         "max_price": 850.00,
@@ -39,13 +44,8 @@ WATCHLIST = [
         "max_price": 950.00,
         "query": "s400",
     },
-    {
-        "name": "KEF LS50 Meta (UNICORN)",
-        "max_price": 1650.00,
-        "query": "ls50 meta",
-    },
     # --------------------------------------------------------------------------
-    # UNICORN SUBWOOFERS
+    # SUBWOOFERS
     # --------------------------------------------------------------------------
     {
         "name": "SVS SB-2000 Pro / SB-3000 (UNICORN)",
@@ -70,12 +70,14 @@ CRAIGSLIST_REGION = "losangeles"
 # Discord Webhook pulled securely from GitHub Secrets
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
-# Standard HTTP headers to emulate a regular web browser
+# Headers configured for browser emulation and Reverb API compatibility
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Version": "3.0",  # Required for Reverb API v3
 }
 
 
@@ -83,15 +85,28 @@ HEADERS = {
 # 2. HELPER FUNCTIONS
 # ==============================================================================
 def extract_price(text):
-    """Extracts a numerical float price from text strings like '$150.00' or '$1,100'."""
+    """Extracts a numerical float price from text strings."""
     if not text:
         return None
+
+    # Primary regex: Match prices preceded by $ (e.g., $1,650.00 or $1650)
     match = re.search(r"\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)", text)
     if match:
         try:
             return float(match.group(1).replace(",", ""))
         except ValueError:
-            return None
+            pass
+
+    # Fallback regex: Look for standalone numbers in standard price ranges
+    match_raw = re.search(r"\b(\d{3,4}(?:\.\d{2})?)\b", text)
+    if match_raw:
+        try:
+            val = float(match_raw.group(1))
+            if 50 <= val <= 10000:
+                return val
+        except ValueError:
+            pass
+
     return None
 
 
@@ -234,7 +249,7 @@ def check_ebay(item):
 
 def check_asr_classifieds(item):
     """Checks Audio Science Review (ASR) Buy/Sell forum RSS feed."""
-    rss_url = "https://www.audiosciencereview.com/forum/index.php?forums/audio-gear-for-sale-hub-buy-sell-trade.29/index.rss"
+    rss_url = "https://www.audiosciencereview.com/forum/index.php?forums/audio-equipment-for-sale-or-to-buy.29/index.rss"
     query_terms = item["query"].lower().split()
     max_price = item["max_price"]
 
@@ -244,7 +259,6 @@ def check_asr_classifieds(item):
             title = entry.title
             title_lower = title.lower()
 
-            # Check if all terms in query match title
             if all(term in title_lower for term in query_terms):
                 link = entry.link
                 price = extract_price(title) or extract_price(
