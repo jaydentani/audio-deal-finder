@@ -9,6 +9,14 @@ import requests
 # ==============================================================================
 WATCHLIST = [
     # --------------------------------------------------------------------------
+    # DESKTOP ISOLATION
+    # --------------------------------------------------------------------------
+    {
+        "name": "IsoAcoustics Aperta (UNICORN)",
+        "max_price": 110.00,
+        "query": "isoacoustics aperta",
+    },
+    # --------------------------------------------------------------------------
     # UNICORN SPEAKERS (Screaming Deals Only)
     # --------------------------------------------------------------------------
     {
@@ -56,13 +64,13 @@ WATCHLIST = [
     },
 ]
 
-# Set your Craigslist region subdomain (e.g., 'losangeles', 'sfbay', 'newyork')
+# Set your local Craigslist region subdomain
 CRAIGSLIST_REGION = "losangeles"
 
 # Discord Webhook pulled securely from GitHub Secrets
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
-# Standard HTTP headers to prevent web requests from being blocked
+# Standard HTTP headers to emulate a regular web browser
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -75,7 +83,7 @@ HEADERS = {
 # 2. HELPER FUNCTIONS
 # ==============================================================================
 def extract_price(text):
-    """Extracts a numerical float price from strings like '$150.00' or '150 USD'."""
+    """Extracts a numerical float price from text strings like '$150.00' or '$1,100'."""
     if not text:
         return None
     match = re.search(r"\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)", text)
@@ -118,7 +126,7 @@ def send_discord_alert(title, price, url, source, target_name):
 
 
 # ==============================================================================
-# 3. SCRAPING MODULES
+# 3. SCRAPING & API MODULES
 # ==============================================================================
 def check_craigslist(item):
     """Checks Craigslist RSS feed for matching queries and price limits."""
@@ -128,7 +136,7 @@ def check_craigslist(item):
 
     try:
         feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:5]:  # Inspect top 5 newest entries
+        for entry in feed.entries[:5]:
             title = entry.title
             link = entry.link
             price = extract_price(title) or extract_price(
@@ -180,15 +188,89 @@ def check_us_audio_mart(item):
         print(f"[ERROR] US Audio Mart parsing failed for {item['name']}: {e}")
 
 
+def check_reverb(item):
+    """Checks Reverb's public API endpoint for matching listings."""
+    query = item["query"].replace(" ", "%20")
+    max_price = item["max_price"]
+    api_url = f"https://api.reverb.com/api/listings?query={query}&price_max={max_price}&currency=USD"
+
+    try:
+        res = requests.get(api_url, headers=HEADERS, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            for listing in data.get("listings", [])[:5]:
+                title = listing.get("title")
+                price = float(listing.get("price", {}).get("amount", 0))
+                link = listing.get("_links", {}).get("web", {}).get("href")
+
+                if price and price <= max_price:
+                    send_discord_alert(
+                        title, price, link, "Reverb", item["name"]
+                    )
+    except Exception as e:
+        print(f"[ERROR] Reverb parsing failed for {item['name']}: {e}")
+
+
+def check_ebay(item):
+    """Checks eBay RSS feed for matching queries and price limits."""
+    query = item["query"].replace(" ", "+")
+    max_price = item["max_price"]
+    rss_url = f"https://www.ebay.com/sch/i.html?_nkw={query}&_udhi={max_price}&_rss=1"
+
+    try:
+        feed = feedparser.parse(rss_url)
+        for entry in feed.entries[:5]:
+            title = entry.title
+            link = entry.link
+            price = extract_price(title) or extract_price(
+                entry.get("summary", "")
+            )
+
+            if price and price <= max_price:
+                send_discord_alert(title, price, link, "eBay", item["name"])
+    except Exception as e:
+        print(f"[ERROR] eBay parsing failed for {item['name']}: {e}")
+
+
+def check_asr_classifieds(item):
+    """Checks Audio Science Review (ASR) Buy/Sell forum RSS feed."""
+    rss_url = "https://www.audiosciencereview.com/forum/index.php?forums/audio-gear-for-sale-hub-buy-sell-trade.29/index.rss"
+    query_terms = item["query"].lower().split()
+    max_price = item["max_price"]
+
+    try:
+        feed = feedparser.parse(rss_url)
+        for entry in feed.entries[:10]:
+            title = entry.title
+            title_lower = title.lower()
+
+            # Check if all terms in query match title
+            if all(term in title_lower for term in query_terms):
+                link = entry.link
+                price = extract_price(title) or extract_price(
+                    entry.get("summary", "")
+                )
+
+                if price and price <= max_price:
+                    send_discord_alert(
+                        title, price, link, "ASR Forum", item["name"]
+                    )
+    except Exception as e:
+        print(f"[ERROR] ASR Forum parsing failed for {item['name']}: {e}")
+
+
 # ==============================================================================
 # 4. MAIN EXECUTION
 # ==============================================================================
 def main():
-    print("Starting scheduled deal scan...")
+    print("Starting master deal scan across all audio marketplaces...")
     for item in WATCHLIST:
         print(f"Scanning for: {item['name']} (Max Price: ${item['max_price']})")
         check_craigslist(item)
         check_us_audio_mart(item)
+        check_reverb(item)
+        check_ebay(item)
+        check_asr_classifieds(item)
     print("Scan complete!")
 
 
