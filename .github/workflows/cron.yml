@@ -30,3 +30,10 @@ jobs:
           EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
         run: python bot.py
+      - name: Commit and Push Updated Seen Listings
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Bot"
+          git add seen_listings.json
+          git commit -m "Auto-update seen listings [skip ci]" || exit 0
+          git push
