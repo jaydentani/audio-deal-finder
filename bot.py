@@ -9,7 +9,7 @@ import base64
 # ==============================================================================
 WATCHLIST = [
     {"name": "IsoAcoustics Aperta", "max_price": 110.00, "query": "isoacoustics"},
-    {"name": "KEF LS50 / LS50 Meta", "max_price": 1650.00, "query": "kef ls50"},
+    {"name": "KEF LS50 / LS50 Meta", "max_price": 5000.00, "query": "kef ls50"}, # High price to test Discord webhook
     {"name": "Revel Performa3 M106", "max_price": 850.00, "query": "revel"},
     {"name": "KEF R3 Meta", "max_price": 1100.00, "query": "kef r3"},
     {"name": "Ascend Sierra LX", "max_price": 850.00, "query": "ascend"},
@@ -68,7 +68,7 @@ def evaluate_deal_with_llm(target_item, listing_title, listing_price):
     Output exactly one word: YES or NO.
     """
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
