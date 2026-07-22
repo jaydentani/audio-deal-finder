@@ -2,15 +2,19 @@ name: Audio Deal Finder Bot
 
 on:
   schedule:
-    - cron: '*/20 * * * *'
-  workflow_dispatch: 
+    - cron: '*/20 * * * *'  # Runs automatically every 20 minutes
+  workflow_dispatch:        # Allows you to trigger it manually from GitHub
+
+# 🔑 Grants write permissions so the bot can push seen_listings.json back to the repo
+permissions:
+  contents: write
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -18,18 +22,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests feedparser
+          pip install requests
 
-      - name: Run Python script
+      - name: Run Deal Finder Bot
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
-          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
-        run: python bot.py
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python bot.py
+
       - name: Commit and Push Updated Seen Listings
         run: |
           git config --local user.email "action@github.com"
