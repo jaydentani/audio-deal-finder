@@ -28,3 +28,17 @@ def safe_get(url, headers=None, timeout=10, params=None):
     except requests.RequestException as e:
         logger.error("Request failed for %s: %s", url, e)
         return None
+
+
+def get_raw(url, headers=None, timeout=10, params=None):
+    """
+    Like safe_get, but returns the raw Response even on a non-200 status
+    (or None on a connection-level failure), so callers can inspect
+    headers/status to decide how to react -- e.g. detecting a Cloudflare
+    challenge page vs. a genuine 404.
+    """
+    try:
+        return requests.get(url, headers=headers, timeout=timeout, params=params)
+    except requests.RequestException as e:
+        logger.error("Request failed for %s: %s", url, e)
+        return None
