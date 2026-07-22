@@ -68,8 +68,8 @@ def evaluate_deal_with_llm(target_item, listing_title, listing_price):
     Output exactly one word: YES or NO.
     """
     
-    # Using the stable v1 production API endpoint
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # FIX: Pointed directly to the active 2026 gemini-3.6-flash model
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
     
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
