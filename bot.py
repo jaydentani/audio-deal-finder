@@ -68,7 +68,8 @@ def evaluate_deal_with_llm(target_item, listing_title, listing_price):
     Output exactly one word: YES or NO.
     """
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # Using the stable v1 production API endpoint
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -83,7 +84,7 @@ def evaluate_deal_with_llm(target_item, listing_title, listing_price):
     except Exception as e:
         print(f"[LLM ERROR] {e}")
         return False
-
+        
 def send_discord_alert(title, price, url, source, target_name):
     if not DISCORD_WEBHOOK: return
     price_str = f"${price:.2f}" if price else "Check Listing"
