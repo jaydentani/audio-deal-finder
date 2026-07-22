@@ -1,35 +1,43 @@
-"""
-Craigslist feed handler.
-
-Craigslist search results support &format=rss, which is a free, no-auth
-way to poll listings. Since Craigslist's query syntax doesn't reliably
-support OR across multiple keywords, this runs one search per
-(region, watchlist keyword) pair -- more requests, but each is cheap and
-free. CRAIGSLIST_REQUEST_DELAY_SECONDS throttles the loop so this stays
-polite and avoids tripping any rate limiting.
-"""
+"""Craigslist feed handler, with a Cloudflare-challenge fallback."""
 
 import logging
 import time
 import xml.etree.ElementTree as ET
 
 from config import (
+    BROWSER_CHALLENGE_WAIT_MS,
     CRAIGSLIST_CATEGORY,
     CRAIGSLIST_REGIONS,
     CRAIGSLIST_REQUEST_DELAY_SECONDS,
     TARGET_WATCHLIST,
 )
-from feeds.base import DEFAULT_USER_AGENT, safe_get
+from feeds.base import DEFAULT_USER_AGENT, get_raw
+from feeds.browser_fetch import fetch_rendered_text, is_cloudflare_challenge
 from matching import extract_price
 
 logger = logging.getLogger(__name__)
 
-# Craigslist's RSS namespace for extra fields (price lives here sometimes)
-_NS = {"rss": "http://purl.org/rss/1.0/"}
 
-
-def _build_url(region, keyword):
+def _build_url(region):
     return f"https://{region}.craigslist.org/search/{CRAIGSLIST_CATEGORY}"
+
+
+def _get_search_text(region, keyword):
+    url = _build_url(region)
+    params = {"query": keyword, "sort": "date", "format": "rss"}
+    resp = get_raw(url, headers={"User-Agent": DEFAULT_USER_AGENT}, params=params)
+
+    if resp is not None and resp.status_code == 200:
+        return resp.text
+
+    if is_cloudflare_challenge(resp):
+        logger.info("Craigslist (%s/%s): Cloudflare challenge, falling back to browser", region, keyword)
+        full_url = resp.url  # requests resolves query params into the final URL
+        return fetch_rendered_text(full_url, wait_ms=BROWSER_CHALLENGE_WAIT_MS)
+
+    if resp is not None:
+        logger.warning("Craigslist (%s/%s): GET returned status %s", region, keyword, resp.status_code)
+    return None
 
 
 def fetch():
@@ -38,27 +46,19 @@ def fetch():
 
     for region in CRAIGSLIST_REGIONS:
         for keyword in keywords:
-            url = _build_url(region, keyword)
-            resp = safe_get(
-                url,
-                headers={"User-Agent": DEFAULT_USER_AGENT},
-                params={"query": keyword, "sort": "date", "format": "rss"},
-            )
+            text = _get_search_text(region, keyword)
             time.sleep(CRAIGSLIST_REQUEST_DELAY_SECONDS)
 
-            if resp is None:
+            if not text:
                 continue
 
             try:
-                root = ET.fromstring(resp.content)
+                root = ET.fromstring(text)
             except ET.ParseError as e:
                 logger.error("Failed to parse Craigslist RSS (%s/%s): %s", region, keyword, e)
                 continue
 
-            # Craigslist RSS items are RSS 1.0 style <item> tags at the root
-            items = root.findall(".//item") or root.findall(".//rss:item", _NS)
-
-            for entry in items:
+            for entry in root.findall(".//item"):
                 title_el = entry.find("title")
                 link_el = entry.find("link")
                 title = title_el.text if title_el is not None else ""
