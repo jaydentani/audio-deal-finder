@@ -98,6 +98,24 @@ def send_discord_alert(title, price, url, source, target_name):
     except Exception as e:
         print(f"[ERROR] Discord: {e}")
 
+def send_status_warning(failed_services):
+    """Sends a notification if one or more search platforms were unreachable."""
+    if not DISCORD_WEBHOOK or not failed_services:
+        return
+
+    services_str = ", ".join(set(failed_services))
+    embed = {
+        "title": "⚠️ Deal Finder: Service Status Notice",
+        "description": f"The following search modules encountered errors or were unreachable during this run:\n**{services_str}**\n\nAll other searches completed successfully.",
+        "color": 16753920,  # Orange warning color
+        "footer": {"text": "Audio Deal Finder • Health Check"},
+    }
+
+    try:
+        requests.post(DISCORD_WEBHOOK, json={"embeds": [embed]}, timeout=10)
+    except Exception as e:
+        print(f"[ERROR] Failed to send status warning: {e}")
+
 # ==============================================================================
 # 3. NATIVE APIs & RSS SCRAPING
 # ==============================================================================
@@ -181,16 +199,61 @@ def check_ebay_api(item, token):
 # ==============================================================================
 def main():
     print("Starting Clean API & RSS Deal Scan...")
-    ebay_token = get_ebay_token()
-    
+    failed_services = set()
+
+    # Safely attempt eBay authentication
+    ebay_token = None
+    try:
+        ebay_token = get_ebay_token()
+        if not ebay_token and (EBAY_APP_ID and EBAY_CERT_ID):
+            failed_services.add("eBay (Auth Pending/Failed)")
+    except Exception as e:
+        print(f"[ERROR] eBay token fetch failed: {e}")
+        failed_services.add("eBay API")
+
+    # Run searches with individual fallback wrappers
     for item in WATCHLIST:
         print(f"Scanning for: {item['name']}...")
-        check_craigslist(item)
-        check_asr_classifieds(item)
-        check_reverb(item)
-        check_ebay_api(item, ebay_token)
-        
+
+        # Craigslist
+        try:
+            check_craigslist(item)
+        except Exception as e:
+            print(f"[ERROR] Craigslist module failed: {e}")
+            failed_services.add("Craigslist")
+
+        # ASR Forum
+        try:
+            check_asr_classifieds(item)
+        except Exception as e:
+            print(f"[ERROR] ASR Forum module failed: {e}")
+            failed_services.add("ASR Forum")
+
+        # Reverb
+        try:
+            check_reverb(item)
+        except Exception as e:
+            print(f"[ERROR] Reverb module failed: {e}")
+            failed_services.add("Reverb")
+
+        # eBay
+        if ebay_token:
+            try:
+                check_ebay_api(item, ebay_token)
+            except Exception as e:
+                print(f"[ERROR] eBay search failed: {e}")
+                failed_services.add("eBay Search")
+
+    # If any services failed during the run, send a single summary warning to Discord
+    if failed_services:
+        print(
+            f"[STATUS NOTICE] The following services failed: {failed_services}"
+        )
+        # Uncomment the line below if you want Discord pings when a site drops:
+        # send_status_warning(failed_services)
+
     print("Scan complete!")
+
 
 if __name__ == "__main__":
     main()
