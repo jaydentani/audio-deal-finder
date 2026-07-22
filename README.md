@@ -56,10 +56,15 @@ audio_deal_finder/
 ├── notifier.py               # Discord webhook sender
 ├── feeds/
 │   ├── __init__.py            # ACTIVE_FEEDS registry
-│   ├── base.py                  # shared HTTP helper
+│   ├── base.py                  # shared HTTP helpers (safe_get, get_raw)
+│   ├── browser_fetch.py           # Playwright Cloudflare-challenge fallback
 │   ├── usaudiomart.py
 │   ├── reddit_avexchange.py
-│   └── craigslist.py
+│   ├── craigslist.py
+│   ├── reverb.py
+│   └── ebay.py
+├── requirements.txt
+├── requirements-browser.txt   # optional: Playwright, for the CF fallback
 └── .github/workflows/main.yml
 ```
 Logging replaces `print()` throughout (`logging.basicConfig` in
@@ -68,13 +73,36 @@ crash the whole scan), and everything is PEP-8 formatted.
 
 ## Migrating to a Mac (`launchd`)
 
-Nothing in `bot.py`/`storage.py` needs to change. Just:
+Nothing in `bot.py`/`storage.py` needs to change. Steps:
 
-1. `pip install requests` locally (or use a venv).
-2. `export DISCORD_WEBHOOK_URL="..."` (or hardcode it in a wrapper shell
-   script that launchd calls -- don't commit secrets to any file).
-3. A `launchd` plist that runs `python3 /path/to/bot.py` every 20
-   minutes, e.g.:
+1. **Set up a virtual environment and install dependencies:**
+   ```bash
+   cd ~/audio_deal_finder
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   pip install -r requirements-browser.txt
+   playwright install chromium
+   ```
+   Note: on macOS, install Chromium with just `playwright install chromium`
+   -- **not** `--with-deps`. That flag installs Linux apt packages for CI
+   runners and doesn't apply here.
+
+2. **Test it manually before scheduling anything:**
+   ```bash
+   python3 bot.py
+   ```
+   Check the log output to confirm which feeds return listings vs. skip.
+
+3. **Set your credentials in the `launchd` plist**, not your shell
+   profile -- `launchd` doesn't inherit your Terminal's environment, so
+   `export`-ing a variable in `.zshrc` won't reach it. Use the
+   `EnvironmentVariables` block below. You need all three you set up as
+   GitHub secrets: `DISCORD_WEBHOOK_URL`, `REVERB_ACCESS_TOKEN`,
+   `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`.
+
+4. **Create the plist**, pointing `ProgramArguments` at your **venv's**
+   Python (not system Python, or it won't see the installed packages):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -86,7 +114,7 @@ Nothing in `bot.py`/`storage.py` needs to change. Just:
     <string>com.yourname.audiodealfinder</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/Users/you/audio_deal_finder/venv/bin/python3</string>
         <string>/Users/you/audio_deal_finder/bot.py</string>
     </array>
     <key>WorkingDirectory</key>
@@ -97,6 +125,12 @@ Nothing in `bot.py`/`storage.py` needs to change. Just:
     <dict>
         <key>DISCORD_WEBHOOK_URL</key>
         <string>your_webhook_url_here</string>
+        <key>REVERB_ACCESS_TOKEN</key>
+        <string>your_reverb_token_here</string>
+        <key>EBAY_CLIENT_ID</key>
+        <string>your_ebay_client_id_here</string>
+        <key>EBAY_CLIENT_SECRET</key>
+        <string>your_ebay_client_secret_here</string>
     </dict>
     <key>StandardOutPath</key>
     <string>/tmp/audiodealfinder.log</string>
@@ -106,11 +140,89 @@ Nothing in `bot.py`/`storage.py` needs to change. Just:
 </plist>
 ```
 
-Save as `~/Library/LaunchAgents/com.yourname.audiodealfinder.plist`, then
-`launchctl load ~/Library/LaunchAgents/com.yourname.audiodealfinder.plist`.
-This gets you real-time scheduling (no GitHub cron jitter) and removes
-the CI/cache complexity entirely -- `seen_listings.json` just lives on
-your disk.
+5. **Load it:**
+   ```bash
+   launchctl load ~/Library/LaunchAgents/com.yourname.audiodealfinder.plist
+   ```
+   This gets you real-time scheduling (no GitHub cron jitter) and removes
+   the CI/cache complexity entirely -- `seen_listings.json` just lives on
+   your disk.
+
+6. **Disable the GitHub Actions workflow once the Mac version is
+   confirmed working.** This step matters: if both run at the same time,
+   you'll get duplicate Discord alerts, because your Mac's
+   `seen_listings.json` and the one in the GitHub Actions cache are two
+   separate, unsynced dedup histories -- each will think a listing is
+   "new" the first time *it* sees it. Easiest fix without deleting
+   anything: open `.github/workflows/main.yml` and remove (or comment
+   out) the `schedule:` block, leaving `workflow_dispatch:` so you can
+   still trigger it manually later if you ever want to:
+   ```yaml
+   on:
+     # schedule:
+     #   - cron: '*/20 * * * *'
+     workflow_dispatch:
+   ```
+
+## New sources added
+
+### Reverb & eBay (`feeds/reverb.py`, `feeds/ebay.py`)
+Both use official free APIs -- no scraping, no ToS risk, and price comes
+straight from structured JSON instead of regex-guessing it from a title.
+
+- **Reverb**: get a personal access token at reverb.com -> Settings ->
+  Advanced -> API Tokens. Set it as `REVERB_ACCESS_TOKEN`.
+- **eBay**: create a free developer account at developer.ebay.com, grab
+  your app's *Production* Client ID/Secret. Set `EBAY_CLIENT_ID` and
+  `EBAY_CLIENT_SECRET`. The bot handles the OAuth client-credentials
+  token exchange and caches it in-process (tokens last ~2hrs).
+
+Both feeds skip themselves cleanly (log a warning, return no listings)
+if their env vars aren't set -- they won't crash the run.
+
+**On GitHub Actions**: add these as repo secrets (Settings -> Secrets
+and variables -> Actions) alongside `DISCORD_WEBHOOK_URL`. The workflow
+already wires them through.
+
+**Locally / on your Mac**: add them to your `launchd` plist's
+`EnvironmentVariables` block, same as the Discord webhook.
+
+### Cloudflare challenge fallback (`feeds/browser_fetch.py`)
+US Audio Mart and Craigslist confirmed (via the `cf-mitigated: challenge`
+response header) that they issue a Cloudflare JS challenge to *any*
+plain HTTP client -- this reproduced identically from a residential Mac
+IP and from GitHub Actions, so it's not IP-reputation blocking, it's a
+JS-execution requirement.
+
+Both feeds now try a fast `requests.get()` first, and only fall back to
+a headless Chromium (Playwright) when that request comes back with the
+challenge marker. This keeps normal runs fast and only pays the
+browser-launch cost (a few seconds) on sources that are actually
+blocking you.
+
+**Setup**: `pip install -r requirements-browser.txt` then install the
+Chromium binary -- `playwright install --with-deps chromium` on Linux/CI
+(the `--with-deps` flag pulls in required apt packages), or just
+`playwright install chromium` on macOS. The GitHub Actions workflow does
+this automatically, with the Chromium binary cached so it's only slow on
+the first run.
+
+**Be aware this isn't a guaranteed fix**: it handles Cloudflare's
+*managed* challenge (auto-resolves once JS runs), but not an
+*interactive* Turnstile challenge (needs a click/puzzle) -- that would
+require a human or a paid solving service, both intentionally out of
+scope here. If you start seeing `"still looks like a challenge page"`
+warnings consistently, that's the signal you've hit that ceiling.
+
+### Facebook Marketplace & OfferUp -- not automated, on purpose
+Neither has a public API. Both require a logged-in session, run heavy
+anti-bot JS, and Facebook's ToS explicitly prohibits automated scraping
+of Marketplace -- the realistic risk isn't just "the scraper breaks,"
+it's your account getting flagged. I didn't build scrapers for these.
+If you want a lightweight, zero-risk version of this later, a small
+script that just generates saved-search URLs for you to check manually
+(or a reminder ping) is a reasonable middle ground -- say the word if
+you want that added.
 
 ## Known remaining trade-offs
 
