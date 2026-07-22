@@ -1,0 +1,8 @@
+# Optional: only needed for the headless-browser fallback in
+# feeds/browser_fetch.py, used when a source is behind a Cloudflare JS
+# challenge (currently: US Audio Mart, Craigslist).
+#
+# Install:
+#   pip install -r requirements-browser.txt
+#   playwright install --with-deps chromium
+playwright>=1.44.0

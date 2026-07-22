@@ -72,3 +72,26 @@ SEEN_FILE = "seen_listings.json"
 MAX_SEEN_ITEMS = 2000
 
 DISCORD_WEBHOOK_URL_ENV = "DISCORD_WEBHOOK_URL"
+
+# ==========================================
+# REVERB (official API -- personal access token, free)
+# Get yours at: reverb.com -> Settings -> Advanced -> API Tokens
+# ==========================================
+REVERB_ACCESS_TOKEN_ENV = "REVERB_ACCESS_TOKEN"
+
+# ==========================================
+# EBAY (official Browse API -- free developer account, OAuth client
+# credentials flow, no user login needed)
+# Get keys at: developer.ebay.com -> your Production Keyset
+# ==========================================
+EBAY_CLIENT_ID_ENV = "EBAY_CLIENT_ID"
+EBAY_CLIENT_SECRET_ENV = "EBAY_CLIENT_SECRET"
+EBAY_MARKETPLACE_ID = "EBAY_US"
+
+# ==========================================
+# HEADLESS BROWSER FALLBACK (Playwright)
+# Used only when a plain requests.get() hits a Cloudflare JS challenge
+# (see feeds/browser_fetch.py). Requires:
+#   pip install playwright && playwright install --with-deps chromium
+# ==========================================
+BROWSER_CHALLENGE_WAIT_MS = 6000
