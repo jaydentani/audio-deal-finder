@@ -1,0 +1,196 @@
+import os
+import re
+import bs4
+import feedparser
+import requests
+
+# ==============================================================================
+# 1. UNICORN WATCHLIST CONFIGURATION
+# ==============================================================================
+WATCHLIST = [
+    # --------------------------------------------------------------------------
+    # UNICORN SPEAKERS (Screaming Deals Only)
+    # --------------------------------------------------------------------------
+    {
+        "name": "Revel Performa3 M106 (UNICORN)",
+        "max_price": 850.00,
+        "query": "revel m106",
+    },
+    {
+        "name": "KEF R3 Meta (UNICORN)",
+        "max_price": 1100.00,
+        "query": "r3 meta",
+    },
+    {
+        "name": "Ascend Sierra LX (UNICORN)",
+        "max_price": 850.00,
+        "query": "sierra lx",
+    },
+    {
+        "name": "Buchardt S400 MKII (UNICORN)",
+        "max_price": 950.00,
+        "query": "s400",
+    },
+    {
+        "name": "KEF LS50 Meta (UNICORN)",
+        "max_price": 650.00,
+        "query": "ls50 meta",
+    },
+    # --------------------------------------------------------------------------
+    # UNICORN SUBWOOFERS
+    # --------------------------------------------------------------------------
+    {
+        "name": "SVS SB-2000 Pro / SB-3000 (UNICORN)",
+        "max_price": 450.00,
+        "query": "svs sb",
+    },
+    {
+        "name": "REL T/7x or T/9x (UNICORN)",
+        "max_price": 500.00,
+        "query": "rel t",
+    },
+    {
+        "name": "SVS 3000 Micro (UNICORN)",
+        "max_price": 450.00,
+        "query": "3000 micro",
+    },
+]
+
+# Set your Craigslist region subdomain (e.g., 'losangeles', 'sfbay', 'newyork')
+CRAIGSLIST_REGION = "losangeles"
+
+# Discord Webhook pulled securely from GitHub Secrets
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
+
+# Standard HTTP headers to prevent web requests from being blocked
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+
+# ==============================================================================
+# 2. HELPER FUNCTIONS
+# ==============================================================================
+def extract_price(text):
+    """Extracts a numerical float price from strings like '$150.00' or '150 USD'."""
+    if not text:
+        return None
+    match = re.search(r"\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)", text)
+    if match:
+        try:
+            return float(match.group(1).replace(",", ""))
+        except ValueError:
+            return None
+    return None
+
+
+def send_discord_alert(title, price, url, source, target_name):
+    """Sends a formatted Embed notification card to your Discord server."""
+    if not DISCORD_WEBHOOK:
+        print("[WARNING] DISCORD_WEBHOOK environment variable not found.")
+        return
+
+    price_str = f"${price:.2f}" if price else "Check Listing"
+
+    embed = {
+        "title": f"🚨 Deal Alert: {target_name} ({price_str})",
+        "description": f"**Title:** {title}\n**Source:** {source}\n[View Listing]({url})",
+        "url": url,
+        "color": 3066993,  # Green accent color
+        "fields": [
+            {"name": "Price", "value": price_str, "inline": True},
+            {"name": "Source", "value": source, "inline": True},
+        ],
+        "footer": {"text": "Audio Deal Finder • GitHub Actions"},
+    }
+
+    payload = {"embeds": [embed]}
+
+    try:
+        response = requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
+        response.raise_for_status()
+        print(f"[ALERT SENT] {title} ({price_str}) on {source}")
+    except Exception as e:
+        print(f"[ERROR] Failed to send Discord alert: {e}")
+
+
+# ==============================================================================
+# 3. SCRAPING MODULES
+# ==============================================================================
+def check_craigslist(item):
+    """Checks Craigslist RSS feed for matching queries and price limits."""
+    query = item["query"].replace(" ", "+")
+    max_price = item["max_price"]
+    rss_url = f"https://{CRAIGSLIST_REGION}.craigslist.org/search/sss?format=rss&query={query}"
+
+    try:
+        feed = feedparser.parse(rss_url)
+        for entry in feed.entries[:5]:  # Inspect top 5 newest entries
+            title = entry.title
+            link = entry.link
+            price = extract_price(title) or extract_price(
+                entry.get("summary", "")
+            )
+
+            if price and price <= max_price:
+                send_discord_alert(
+                    title, price, link, "Craigslist", item["name"]
+                )
+    except Exception as e:
+        print(f"[ERROR] Craigslist parsing failed for {item['name']}: {e}")
+
+
+def check_us_audio_mart(item):
+    """Checks US Audio Mart for matching queries and price limits."""
+    query = item["query"].replace(" ", "+")
+    max_price = item["max_price"]
+    search_url = f"https://www.usaudiomart.com/search.php?keywords={query}"
+
+    try:
+        res = requests.get(search_url, headers=HEADERS, timeout=10)
+        if res.status_code != 200:
+            return
+
+        soup = bs4.BeautifulSoup(res.text, "html.parser")
+        results = soup.select(".search_result") or soup.select(
+            ".list-group-item"
+        )
+
+        for result in results[:5]:
+            title_tag = result.select_one("a")
+            if not title_tag:
+                continue
+
+            title = title_tag.get_text(strip=True)
+            link = title_tag.get("href", "")
+            if link and not link.startswith("http"):
+                link = f"https://www.usaudiomart.com{link}"
+
+            price_tag = result.select_one(".price") or result
+            price = extract_price(price_tag.get_text()) if price_tag else None
+
+            if price and price <= max_price:
+                send_discord_alert(
+                    title, price, link, "US Audio Mart", item["name"]
+                )
+    except Exception as e:
+        print(f"[ERROR] US Audio Mart parsing failed for {item['name']}: {e}")
+
+
+# ==============================================================================
+# 4. MAIN EXECUTION
+# ==============================================================================
+def main():
+    print("Starting scheduled deal scan...")
+    for item in WATCHLIST:
+        print(f"Scanning for: {item['name']} (Max Price: ${item['max_price']})")
+        check_craigslist(item)
+        check_us_audio_mart(item)
+    print("Scan complete!")
+
+
+if __name__ == "__main__":
+    main()
