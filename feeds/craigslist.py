@@ -1,51 +1,50 @@
-"""Craigslist feed handler, with a Cloudflare-challenge fallback."""
+"""Craigslist feed handler."""
 
 import logging
 import time
 import xml.etree.ElementTree as ET
 
 from config import (
-    BROWSER_CHALLENGE_WAIT_MS,
     CRAIGSLIST_CATEGORY,
     CRAIGSLIST_REGIONS,
     CRAIGSLIST_REQUEST_DELAY_SECONDS,
     TARGET_WATCHLIST,
 )
-from feeds.base import DEFAULT_USER_AGENT, get_raw
-from feeds.browser_fetch import fetch_rendered_text, is_cloudflare_challenge
+from feeds.base import get_raw
 from matching import extract_price
 
 logger = logging.getLogger(__name__)
 
+# Pristine browser headers to bypass the WAF
+CRAIGSLIST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1"
+}
 
 def _build_url(region):
     return f"https://{region}.craigslist.org/search/{CRAIGSLIST_CATEGORY}"
-
 
 def _get_search_text(region, keyword):
     url = _build_url(region)
     params = {"query": keyword, "sort": "date", "format": "rss"}
     
-    # Pass full browser headers to avoid Craigslist WAF blocks
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    resp = get_raw(url, headers=headers, params=params)
+    resp = get_raw(url, headers=CRAIGSLIST_HEADERS, params=params)
 
     if resp is not None and resp.status_code == 200:
         return resp.text
 
-    if is_cloudflare_challenge(resp) or (resp is not None and resp.status_code == 403):
-        logger.info("Craigslist (%s/%s): Blocked (403 or CF challenge), falling back to browser", region, keyword)
-        full_url = resp.url if resp else url
-        return fetch_rendered_text(full_url, wait_ms=BROWSER_CHALLENGE_WAIT_MS)
-
     if resp is not None:
         logger.warning("Craigslist (%s/%s): GET returned status %s", region, keyword, resp.status_code)
     return None
-
 
 def fetch():
     listings = []
@@ -54,11 +53,10 @@ def fetch():
     for region in CRAIGSLIST_REGIONS:
         for keyword in keywords:
             text = _get_search_text(region, keyword)
+            
+            # Critical: Sleep to prevent IP bans during the loop
             time.sleep(CRAIGSLIST_REQUEST_DELAY_SECONDS)
 
-            if not text or not text.strip().startswith(("<?xml", "<rss", "<feed")):
-                logger.warning("Craigslist (%s/%s): Payload is not valid XML (likely an HTML bot block page). Skipping.", region, keyword)
-                continue
             if not text:
                 continue
 

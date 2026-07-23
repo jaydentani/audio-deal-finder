@@ -1,31 +1,35 @@
-"""
-Reddit feed handler (e.g. r/AVexchange).
-
-Uses Reddit's public JSON endpoint rather than scraping HTML. Reddit is
-strict about User-Agent -- a generic browser UA gets you 429'd quickly,
-so this uses a descriptive one (see config.REDDIT_USER_AGENT). Update
-that string with your own Reddit username per Reddit's API etiquette,
-even though this hits the unauthenticated public JSON endpoint.
-"""
+"""Reddit feed handler (e.g. r/AVexchange)."""
 
 import logging
 
-from config import REDDIT_SUBREDDITS, REDDIT_USER_AGENT
-from feeds.base import safe_get
+from config import REDDIT_SUBREDDITS
+from feeds.base import get_raw
 from matching import extract_price
 
 logger = logging.getLogger(__name__)
 
 PLATFORM_NAME_TEMPLATE = "Reddit r/{sub}"
 
+# Disguise the request as a normal browser accessing the JSON endpoint
+REDDIT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin"
+}
 
 def fetch():
     listings = []
 
     for sub in REDDIT_SUBREDDITS:
         url = f"https://www.reddit.com/r/{sub}/new.json"
-        resp = safe_get(url, headers={"User-Agent": REDDIT_USER_AGENT}, params={"limit": 50})
-        if resp is None:
+        resp = get_raw(url, headers=REDDIT_HEADERS, params={"limit": 50})
+        
+        if resp is None or resp.status_code != 200:
+            status = resp.status_code if resp else "Connection Error"
+            logger.warning("Reddit r/%s: GET returned status %s", sub, status)
             continue
 
         try:

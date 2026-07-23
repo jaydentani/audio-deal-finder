@@ -63,7 +63,7 @@ CRAIGSLIST_REGIONS = [
     "seattle",
 ]
 CRAIGSLIST_CATEGORY = "ela"
-CRAIGSLIST_REQUEST_DELAY_SECONDS = 3  # be polite; avoid tripping rate limits
+CRAIGSLIST_REQUEST_DELAY_SECONDS = 10  # be polite; avoid tripping rate limits
 
 # ==========================================
 # STORAGE
