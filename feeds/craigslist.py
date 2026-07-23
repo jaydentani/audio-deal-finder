@@ -25,15 +25,22 @@ def _build_url(region):
 def _get_search_text(region, keyword):
     url = _build_url(region)
     params = {"query": keyword, "sort": "date", "format": "rss"}
-    resp = get_raw(url, headers={"User-Agent": DEFAULT_USER_AGENT}, params=params)
+    
+    # Pass full browser headers to avoid Craigslist WAF blocks
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    resp = get_raw(url, headers=headers, params=params)
 
     if resp is not None and resp.status_code == 200:
         return resp.text
 
-    if is_cloudflare_challenge(resp) or resp.status_code == 403:
-            logger.info("Craigslist (%s/%s): Blocked (403 or CF challenge), falling back to browser", region, keyword)
-            full_url = resp.url
-            return fetch_rendered_text(full_url, wait_ms=BROWSER_CHALLENGE_WAIT_MS)
+    if is_cloudflare_challenge(resp) or (resp is not None and resp.status_code == 403):
+        logger.info("Craigslist (%s/%s): Blocked (403 or CF challenge), falling back to browser", region, keyword)
+        full_url = resp.url if resp else url
+        return fetch_rendered_text(full_url, wait_ms=BROWSER_CHALLENGE_WAIT_MS)
 
     if resp is not None:
         logger.warning("Craigslist (%s/%s): GET returned status %s", region, keyword, resp.status_code)
@@ -49,6 +56,9 @@ def fetch():
             text = _get_search_text(region, keyword)
             time.sleep(CRAIGSLIST_REQUEST_DELAY_SECONDS)
 
+            if not text or not text.strip().startswith(("<?xml", "<rss", "<feed")):
+                logger.warning("Craigslist (%s/%s): Payload is not valid XML (likely an HTML bot block page). Skipping.", region, keyword)
+                continue
             if not text:
                 continue
 

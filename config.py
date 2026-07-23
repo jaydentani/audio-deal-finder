@@ -52,7 +52,7 @@ USAUDIOMART_RSS_URL = "https://www.usaudiomart.com/rss.php?class_id=0"
 
 REDDIT_SUBREDDITS = ["AVexchange"]
 # Reddit requires a descriptive User-Agent or it will 429 you almost immediately.
-REDDIT_USER_AGENT = "python:audio-deal-finder-bot:v1.0 (by u/Unhappy-Plate-1916)"
+REDDIT_USER_AGENT = "android:com.audiodealfinder.app:v1.0 (by u/Unhappy-Plate-1916)"
 
 # Craigslist search RSS: {region}.craigslist.org/search/{category}?query={kw}&format=rss
 # "ela" = "electronics - by owner". Add/remove regions you're willing to drive to.

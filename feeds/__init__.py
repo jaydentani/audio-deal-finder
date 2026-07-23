@@ -6,7 +6,7 @@ returning a list of listing dicts, then add it to ACTIVE_FEEDS below.
 from feeds import craigslist, ebay, reddit_avexchange, reverb, usaudiomart
 
 ACTIVE_FEEDS = [
-    usaudiomart,
+    # usaudiomart,
     reddit_avexchange,
     craigslist,
     reverb,
