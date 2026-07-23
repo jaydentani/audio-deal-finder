@@ -48,11 +48,11 @@ TARGET_WATCHLIST = [
 # ==========================================
 # FEED SOURCES
 # ==========================================
-USAUDIOMART_RSS_URL = "https://www.usaudiomart.com/rss.php"
+USAUDIOMART_RSS_URL = "https://www.usaudiomart.com/rss.php?class_id=0"
 
 REDDIT_SUBREDDITS = ["AVexchange"]
 # Reddit requires a descriptive User-Agent or it will 429 you almost immediately.
-REDDIT_USER_AGENT = "python:audio-deal-finder-bot:v1.0 (by u/your_reddit_username)"
+REDDIT_USER_AGENT = "python:audio-deal-finder-bot:v1.0 (by u/Unhappy-Plate-1916)"
 
 # Craigslist search RSS: {region}.craigslist.org/search/{category}?query={kw}&format=rss
 # "ela" = "electronics - by owner". Add/remove regions you're willing to drive to.
@@ -63,7 +63,7 @@ CRAIGSLIST_REGIONS = [
     "seattle",
 ]
 CRAIGSLIST_CATEGORY = "ela"
-CRAIGSLIST_REQUEST_DELAY_SECONDS = 1.5  # be polite; avoid tripping rate limits
+CRAIGSLIST_REQUEST_DELAY_SECONDS = 3  # be polite; avoid tripping rate limits
 
 # ==========================================
 # STORAGE

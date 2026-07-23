@@ -30,10 +30,10 @@ def _get_search_text(region, keyword):
     if resp is not None and resp.status_code == 200:
         return resp.text
 
-    if is_cloudflare_challenge(resp):
-        logger.info("Craigslist (%s/%s): Cloudflare challenge, falling back to browser", region, keyword)
-        full_url = resp.url  # requests resolves query params into the final URL
-        return fetch_rendered_text(full_url, wait_ms=BROWSER_CHALLENGE_WAIT_MS)
+    if is_cloudflare_challenge(resp) or resp.status_code == 403:
+            logger.info("Craigslist (%s/%s): Blocked (403 or CF challenge), falling back to browser", region, keyword)
+            full_url = resp.url
+            return fetch_rendered_text(full_url, wait_ms=BROWSER_CHALLENGE_WAIT_MS)
 
     if resp is not None:
         logger.warning("Craigslist (%s/%s): GET returned status %s", region, keyword, resp.status_code)
